@@ -13,6 +13,7 @@ has zones       => is => "lazy", clearer => 1;
 
 sub _build_zones {
     my ($self) = @_;
+    say "Refreshing zone list...";
     +{  map {
             my $zn = $_;
             map +($_ => $zn), $zn->zoneName;
@@ -27,6 +28,8 @@ sub searches {
         base        => $self->conf("base"),
         filter      => "objectClass=ipHost",
         callback    => "hosts_changed",
+        wait        => 10,
+        maxwait     => 30,
     },
     "zones" => {
         base        => "ou=zones," . $self->conf("base"),
@@ -49,7 +52,7 @@ sub zones_changed {
     my ($self) = @_;
 
     $self->clear_zones;
-    $self->hosts_changed;
+    $self->invalidate("hosts");
 }
 
 sub hosts_changed {

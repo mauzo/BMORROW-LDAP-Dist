@@ -34,13 +34,6 @@ sub _build_LDAP {
     Net::LDAP->new($self->conf("host"));
 }
 
-has first_change => (
-    is      => "ro", 
-    lazy    => 1, 
-    default => sub { time },
-    clearer => 1,
-);
-
 has sync_state  => is => "lazy";
 
 sub _build_sync_state {
@@ -52,6 +45,7 @@ sub _build_sync_state {
 has plugins     => is => "lazy";
 has searches    => is => "ro", lazy => 1, default => sub { +{} };
 has active      => is => "ro", lazy => 1, default => sub { +{} };
+has changes     => is => "ro", lazy => 1, default => sub { +{} };
 
 sub BUILDARGS {
     my ($class, @args) = @_;
@@ -61,7 +55,6 @@ sub BUILDARGS {
         $$args{_conf} = YAML::XS::LoadFile $file;
     }
 
-    warn "BUILDARGS: " . pp $args;
     $args;
 }
 
@@ -69,19 +62,25 @@ sub conf { $_[0]->_conf->{$_[1]} }
 
 sub SIGINFO () { 29 } # grr
 
+sub info {
+    my ($fmt, @args) = @_;
+    my $msg = @args ? sprintf $fmt, @args : $fmt;
+    warn "$msg\n";
+}
+
 my $UUID = Data::UUID->new;
 
 sub register_kevent {
     my ($self, $id, $filt, $cb) = @_;
     
-    warn "REGISTER KEVENT [$id] [$filt] [$cb]";
+    info "REGISTER KEVENT [$id] [$filt] [$cb]";
     $self->KQ->EV_SET($id, $filt, EV_ADD, 0, 0, $cb);
 }
 
 sub set_timeout {
     my ($self, $id, $after, $meth) = @_;
 
-    warn "SET TIMEOUT [$meth] [$after]";
+    info "SET TIMEOUT [$id] [$meth] [$after]";
     ref $meth or $meth = $self->weak_method($meth);
 
     try { $self->KQ->EV_SET($id, EVFILT_TIMER, EV_DELETE, 0, 0, 0) };
@@ -89,17 +88,37 @@ sub set_timeout {
         0, $after, $meth);
 }
 
+sub invalidate {
+    my ($self, $name) = @_;
+
+    say "Got notification [$name]";
+    my $chg = $self->changes->{$name}
+        or croak "No change information for [$name]";
+
+    if (my $wait = $$chg{wait}) {
+        my $first = $$chg{first} //= time;
+
+        $self->set_timeout(int $chg, $wait * 1000, sub {
+            delete $$chg{first};
+            $$chg{callback}->();
+        }) unless $first < time - $$chg{maxwait};
+    }
+    else {
+        $$chg{callback}->();
+    }
+}
+
 sub add_search {
     my ($self, $name, %params) = @_;
 
-    my $callback    = delete $params{callback};
     my $searches    = $self->searches;
-
     exists $$searches{$name}
         and croak "[$self] already has a search called [$name]";
 
-    # create the entry so we get an address to key the timeout
-    my $id      = int \$$searches{$name};
+    $self->changes->{$name} = {
+        map +($_, delete $params{$_}), qw/wait maxwait callback/,
+    };
+
     my $active  = $self->active;
 
     $$searches{$name} = Net::LDAPx::Sync->new(
@@ -110,14 +129,7 @@ sub add_search {
         callbacks   => {
             idle    => sub { delete $$active{$name} },
             refresh => sub { $$active{$name} = 1 },
-            change  => $self->weak_closure(sub {
-                my ($self) = @_;
-                say "Got notification";
-                my $change = $self->first_change;
-                $self->set_timeout($id, 
-                    $self->conf("wait") * 1000, $callback) 
-                    unless $change < time - $self->conf("maxwait");
-            }),
+            change  => $self->weak_method("invalidate", undef, [$name]),
         },
     );
 }
@@ -142,7 +154,7 @@ sub _build_plugins {
     my ($self) = @_;
 
     my %plg;
-    for (@{$self->conf("plugins")}) {
+    for (keys %{$self->conf("plugins")}) {
         my ($name, $type) = /(.*)=(.*)/ || ($_, $_);
         $plg{$name} and die "Duplicate plugin name: [$name]\n";
 
@@ -174,19 +186,19 @@ sub init {
 
     $self->register_kevent(fileno $L->socket(sasl_layer => 0),
         EVFILT_READ, sub {
-            warn "LDAP read";
+            info "LDAP read";
             $L->process;
         },
     );
     $self->register_kevent(POSIX::SIGINT, EVFILT_SIGNAL, sub {
-        warn "SIGINT!";
+        info "SIGINT!";
         $_->stop_sync for values %$S;
     });
     $SIG{INT} = "IGNORE";
     $self->register_kevent(SIGINFO, EVFILT_SIGNAL,
         $self->weak_method("_show_caches"));
     $self->register_kevent(POSIX::SIGQUIT, EVFILT_SIGNAL, sub {
-        warn "QUIT!";
+        info "QUIT!";
         exit 1;
     });
     $SIG{QUIT} = "IGNORE";
@@ -205,7 +217,7 @@ sub run {
     say "Waiting for sync...";
     while (%$active) {
         for ($KQ->kevent) {
-            warn "KEVENT: " . pp $_;
+            info "KEVENT: " . pp $_;
             $$_[KQ_UDATA]->();
         }
     }
