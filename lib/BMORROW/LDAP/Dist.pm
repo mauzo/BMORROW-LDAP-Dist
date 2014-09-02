@@ -42,10 +42,10 @@ has first_change => (
     clearer => 1,
 );
 
-has sync    => is => "lazy";
+has Sync    => is => "lazy";
 
 my $J = JSON::XS->new->ascii->pretty;
-sub _build_sync {
+sub _build_Sync {
     my ($self) = @_;
 
     Net::LDAPx::Sync->new(
@@ -54,6 +54,10 @@ sub _build_sync {
         thaw    => do {
             my $cache = eval { scalar read_file $self->conf("sync") };
             $cache && $J->decode($cache);
+        },
+        search  => {
+            base    => $self->conf("base"),
+            filter  => "objectClass=ipHost",
         },
         callbacks   => {
             change => $self->weak_closure(sub {
@@ -140,7 +144,7 @@ sub do_zones {
         push @{$recs{$zone}}, [$nm, $typ, $data];
     };
 
-    my @hosts = map BMORROW::LDAP::Entry->new($_), $self->sync->results;
+    my @hosts = map BMORROW::LDAP::Entry->new($_), $self->Sync->results;
     for my $host (@hosts) {
         my $canon = rdn cn => $host->dn;
         for my $ip (map Net::IP->new($_), $host->ipHostNumber) {
@@ -220,7 +224,7 @@ sub init {
     my ($self) = @_;
 
     my $L = $self->LDAP;
-    my $S = $self->sync;
+    my $S = $self->Sync;
 
     say "Defrosted sync:";
     print map $_->ldif, $S->results;
@@ -254,14 +258,10 @@ sub run {
     my ($self) = @_;
 
     my $KQ  = $self->KQ;
-    my $S   = $self->sync;
+    my $S   = $self->Sync;
 
     say "Starting search...";
-    $S->sync(
-        persist     => 1,
-        base        => $self->conf("base"),
-        filter      => "objectClass=ipHost",
-    );
+    $S->sync(persist => 1);
 
     say "Waiting for sync...";
     until ($S->state eq "idle") {
