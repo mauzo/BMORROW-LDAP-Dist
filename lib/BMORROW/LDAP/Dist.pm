@@ -4,7 +4,6 @@ use 5.012;
 use Moo;
 
 use BMORROW::LDAP::Entry;
-use BMORROW::LDAP::Util qw/rdn/;
 use Net::LDAP;
 use Net::LDAPx::Sync;
 
@@ -15,8 +14,7 @@ use File::Slurp     qw/read_file write_file/;
 use IO::KQueue;
 use IO::Select;
 use JSON::XS        qw/encode_json/;
-use List::Util      qw/first/;
-use Net::IP;
+use Module::Runtime qw/use_module/;
 use POSIX;
 use Try::Tiny;
 use YAML::XS;
@@ -51,20 +49,9 @@ sub _build_sync_state {
     $cache ? JSON::XS->new->decode($cache) : {};
 }
 
+has plugins     => is => "lazy";
 has searches    => is => "ro", lazy => 1, default => sub { +{} };
 has active      => is => "ro", lazy => 1, default => sub { +{} };
-
-has zones       => is => "lazy", clearer => 1;
-
-sub _build_zones {
-    my ($self) = @_;
-    +{  map {
-            my $zn = $_;
-            map +($_ => $zn), $zn->zoneName;
-        }
-        $self->results("zones"),
-    };
-}
 
 sub BUILDARGS {
     my ($class, @args) = @_;
@@ -141,110 +128,6 @@ sub results {
     $self->searches->{$srch}->results;
 }
 
-sub find_zone {
-    my ($self, $name) = @_;
-    $name = reverse $name;
-    my $zn = first { 
-        $name =~ /^\.?\Q$_\E(?:\.|$)/
-    } sort map scalar reverse, keys %{$self->zones};
-    $zn ? reverse $zn : ();
-}
-
-sub zones_changed {
-    my ($self) = @_;
-
-    $self->clear_zones;
-    $self->hosts_changed;
-}
-
-sub hosts_changed {
-    my ($self) = @_;
-    say "Rebuilding zone files...";
-    $self->clear_first_change;
-
-    my %recs;
-    my $push_rec = sub {
-        my ($nm, $typ, $data) = @_;
-        my $zone = $self->find_zone($nm) or return;
-        push @{$recs{$zone}}, [$nm, $typ, $data];
-    };
-
-    my @hosts = $self->results("hosts");
-    for my $host (@hosts) {
-        my $canon = rdn cn => $host->dn;
-        for my $ip (map Net::IP->new($_), $host->ipHostNumber) {
-            for my $nm ($host->cn) {
-                $push_rec->("$nm.", 
-                    $ip->version == 6 ? "AAAA" : "A", $ip->ip);
-            }
-            $push_rec->($ip->reverse_ip, "PTR", "$canon.");
-        }
-    }
-
-    my $Zones   = $self->conf("zones");
-    my $TTL     = $self->conf("TTL");
-    my $Contact = $self->conf("contact");
-    my $zones   = $self->zones;
-
-    -d $Zones or mkdir $Zones;
-    unlink $_ for glob "$Zones/*";
-    my $Time = time;
-
-    for my $zn (keys %$zones) {
-        say "  Writing zone file [$Zones/$zn]...";
-        open my $ZN, ">", "$Zones/$zn";
-        select $ZN;
-
-        my $zrc     = $$zones{$zn};
-        my $master  = rdn "nSRecord", $zrc->dn;
-        print "$zn. $$TTL{SOA} IN SOA $master. $Contact. ";
-        say "$Time 16384 2048 1048576 $$TTL{SOA}";
-
-        for ($zrc->nSRecord) {
-            say "$zn. $$TTL{NS} IN NS $_.";
-        }
-
-        for my $r (@{$recs{$zn}}) {
-            my ($nm, $typ, $dat) = @$r;
-            my $ttl = $$TTL{$typ} // $$TTL{default};
-            say "$nm $ttl IN $typ $dat";
-        }
-
-        select STDOUT;
-        close $ZN;
-    }
-
-    say "  Writing [$Zones.nsd.conf]...";
-    open my $CNF, ">", "$Zones.nsd.conf";
-    print $CNF <<CNF for keys %$zones;
-zone:
-    name: "$_"
-    zonefile: "$Zones/$_"
-
-CNF
-    close $CNF;
-
-    say "  Writing [$Zones.unbound.conf]...";
-    open $CNF, ">", "$Zones.unbound.conf";
-    for (keys %$zones) {
-        # XXX lookup and generate the addrs
-        # We can't use stub-host since the NS records are in-bailiwick
-        print $CNF <<CNF;
-server:
-    private-domain: "$_"
-    local-zone: "$_" transparent
-    domain-insecure: "$_"
-
-stub-zone:
-    name: "$_"
-    stub-addr: 192.168.1.2
-
-CNF
-    }
-
-    say "  Done.";
-}
-
 sub _show_caches {
     my ($self) = @_;
     my $S = $self->searches;
@@ -253,6 +136,28 @@ sub _show_caches {
         "Current cache contents:\n",
         map { ("---$_---\n", map $_->ldif, $$S{$_}->results) }
         keys %$S;
+}
+
+sub _build_plugins {
+    my ($self) = @_;
+
+    my %plg;
+    for (@{$self->conf("plugins")}) {
+        my ($name, $type) = /(.*)=(.*)/ || ($_, $_);
+        $plg{$name} and die "Duplicate plugin name: [$name]\n";
+
+        my $mod = use_module(__PACKAGE__ . "::$type");
+        my $plg = $plg{$name} = $mod->new(Dist => $self, name => $name);
+        $plg->init;
+
+        my %srch = $plg->searches;
+        for (keys %srch) {
+            my $cbm = $srch{$_}{callback};
+            $srch{$_}{callback} = sub { $plg->$cbm };
+            $self->add_search("$name.$_", %{$srch{$_}});
+        }
+    }
+    \%plg;
 }
 
 sub init {
@@ -264,18 +169,7 @@ sub init {
     $L->bind;
     $L->async(1);
 
-    $self->add_search("hosts",
-        base        => $self->conf("base"),
-        filter      => "objectClass=ipHost",
-        callback    => "hosts_changed",
-    );
-    $self->add_search("zones",
-        base        => "ou=zones," . $self->conf("base"),
-        filter      => q((nSRecord=*)),
-        attrs       => [qw[ zoneName nSRecord ]],
-        callback    => "zones_changed",
-    );
-
+    $self->plugins;
     $self->_show_caches;
 
     $self->register_kevent(fileno $L->socket(sasl_layer => 0),
