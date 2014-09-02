@@ -8,6 +8,7 @@ use BMORROW::LDAP::Util qw/rdn/;
 use Net::LDAP;
 use Net::LDAPx::Sync;
 
+use Carp;
 use Data::Dump      qw/pp/;
 use Data::UUID;
 use File::Slurp     qw/read_file write_file/;
@@ -42,36 +43,18 @@ has first_change => (
     clearer => 1,
 );
 
-has Sync    => is => "lazy";
+has sync_state  => is => "lazy";
 
-my $J = JSON::XS->new->ascii->pretty;
-sub _build_Sync {
+sub _build_sync_state {
     my ($self) = @_;
-
-    Net::LDAPx::Sync->new(
-        LDAP    => $self->LDAP,
-        cache   => 1,
-        thaw    => do {
-            my $cache = eval { scalar read_file $self->conf("sync") };
-            $cache && $J->decode($cache);
-        },
-        search  => {
-            base    => $self->conf("base"),
-            filter  => "objectClass=ipHost",
-        },
-        callbacks   => {
-            change => $self->weak_closure(sub {
-                my ($self) = @_;
-                say "Got notification";
-                my $change = $self->first_change;
-                $self->set_timeout(0, $self->conf("wait") * 1000, "do_zones")
-                    unless $change < time - $self->conf("maxwait");
-            }),
-        },
-    );
+    my $cache = eval { scalar read_file $self->conf("sync") };
+    $cache ? JSON::XS->new->decode($cache) : {};
 }
 
-has zones       => is => "lazy";
+has searches    => is => "ro", lazy => 1, default => sub { +{} };
+has active      => is => "ro", lazy => 1, default => sub { +{} };
+
+has zones       => is => "lazy", clearer => 1;
 
 sub _build_zones {
     my ($self) = @_;
@@ -79,13 +62,7 @@ sub _build_zones {
             my $zn = $_;
             map +($_ => $zn), $zn->zoneName;
         }
-        map BMORROW::LDAP::Entry->new($_),
-        map $_->entries,
-        $self->LDAP->search(
-            base    => "ou=zones," . $self->conf("base"),
-            filter  => q((nSRecord=*)),
-            attrs   => [qw[ zoneName nSRecord ]],
-        ),
+        $self->results("zones"),
     };
 }
 
@@ -118,9 +95,50 @@ sub set_timeout {
     my ($self, $id, $after, $meth) = @_;
 
     warn "SET TIMEOUT [$meth] [$after]";
+    ref $meth or $meth = $self->weak_method($meth);
+
     try { $self->KQ->EV_SET($id, EVFILT_TIMER, EV_DELETE, 0, 0, 0) };
     $self->KQ->EV_SET($id, EVFILT_TIMER, EV_ADD|EV_ONESHOT, 
-        0, $after, $self->weak_method($meth));
+        0, $after, $meth);
+}
+
+sub add_search {
+    my ($self, $name, %params) = @_;
+
+    my $callback    = delete $params{callback};
+    my $searches    = $self->searches;
+
+    exists $$searches{$name}
+        and croak "[$self] already has a search called [$name]";
+
+    # create the entry so we get an address to key the timeout
+    my $id      = int \$$searches{$name};
+    my $active  = $self->active;
+
+    $$searches{$name} = Net::LDAPx::Sync->new(
+        LDAP    => $self->LDAP,
+        cache   => 1,
+        thaw    => $self->sync_state->{$name},
+        search  => \%params,
+        callbacks   => {
+            idle    => sub { delete $$active{$name} },
+            refresh => sub { $$active{$name} = 1 },
+            change  => $self->weak_closure(sub {
+                my ($self) = @_;
+                say "Got notification";
+                my $change = $self->first_change;
+                $self->set_timeout($id, 
+                    $self->conf("wait") * 1000, $callback) 
+                    unless $change < time - $self->conf("maxwait");
+            }),
+        },
+    );
+}
+
+sub results {
+    my ($self, $srch) = @_;
+    map BMORROW::LDAP::Entry->new($_),
+    $self->searches->{$srch}->results;
 }
 
 sub find_zone {
@@ -132,7 +150,14 @@ sub find_zone {
     $zn ? reverse $zn : ();
 }
 
-sub do_zones {
+sub zones_changed {
+    my ($self) = @_;
+
+    $self->clear_zones;
+    $self->hosts_changed;
+}
+
+sub hosts_changed {
     my ($self) = @_;
     say "Rebuilding zone files...";
     $self->clear_first_change;
@@ -144,7 +169,7 @@ sub do_zones {
         push @{$recs{$zone}}, [$nm, $typ, $data];
     };
 
-    my @hosts = map BMORROW::LDAP::Entry->new($_), $self->Sync->results;
+    my @hosts = $self->results("hosts");
     for my $host (@hosts) {
         my $canon = rdn cn => $host->dn;
         for my $ip (map Net::IP->new($_), $host->ipHostNumber) {
@@ -220,17 +245,38 @@ CNF
     say "  Done.";
 }
 
+sub _show_caches {
+    my ($self) = @_;
+    my $S = $self->searches;
+    
+    say join "",
+        "Current cache contents:\n",
+        map { ("---$_---\n", map $_->ldif, $$S{$_}->results) }
+        keys %$S;
+}
+
 sub init {
     my ($self) = @_;
 
     my $L = $self->LDAP;
-    my $S = $self->Sync;
-
-    say "Defrosted sync:";
-    print map $_->ldif, $S->results;
+    my $S = $self->searches;
 
     $L->bind;
     $L->async(1);
+
+    $self->add_search("hosts",
+        base        => $self->conf("base"),
+        filter      => "objectClass=ipHost",
+        callback    => "hosts_changed",
+    );
+    $self->add_search("zones",
+        base        => "ou=zones," . $self->conf("base"),
+        filter      => q((nSRecord=*)),
+        attrs       => [qw[ zoneName nSRecord ]],
+        callback    => "zones_changed",
+    );
+
+    $self->_show_caches;
 
     $self->register_kevent(fileno $L->socket(sasl_layer => 0),
         EVFILT_READ, sub {
@@ -240,13 +286,11 @@ sub init {
     );
     $self->register_kevent(POSIX::SIGINT, EVFILT_SIGNAL, sub {
         warn "SIGINT!";
-        $S->stop_sync;
+        $_->stop_sync for values %$S;
     });
     $SIG{INT} = "IGNORE";
-    $self->register_kevent(SIGINFO, EVFILT_SIGNAL, sub {
-        say "Current cache contents: ";
-        print map $_->ldif, $S->results;
-    });
+    $self->register_kevent(SIGINFO, EVFILT_SIGNAL,
+        $self->weak_method("_show_caches"));
     $self->register_kevent(POSIX::SIGQUIT, EVFILT_SIGNAL, sub {
         warn "QUIT!";
         exit 1;
@@ -257,25 +301,27 @@ sub init {
 sub run {
     my ($self) = @_;
 
-    my $KQ  = $self->KQ;
-    my $S   = $self->Sync;
+    my $KQ      = $self->KQ;
+    my $S       = $self->searches;
+    my $active  = $self->active;
 
-    say "Starting search...";
-    $S->sync(persist => 1);
+    say "Starting searches...";
+    $_->sync(persist => 1) for values %$S;
 
     say "Waiting for sync...";
-    until ($S->state eq "idle") {
+    while (%$active) {
         for ($KQ->kevent) {
             warn "KEVENT: " . pp $_;
             $$_[KQ_UDATA]->();
         }
     }
 
-    say "Current cache contents: ";
-    print map $_->ldif, $S->results;
+    $self->_show_caches;
 
     say "Recording sync state...";
-    write_file $self->conf("sync"), $J->encode($S->freeze);
+    my $frz = { map +($_ => $$S{$_}->freeze), keys %$S };
+    write_file $self->conf("sync"),
+        JSON::XS->new->pretty->ascii->encode($frz);
 
     say "Done.";
 }
