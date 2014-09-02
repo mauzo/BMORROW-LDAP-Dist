@@ -1,0 +1,14 @@
+#!/usr/bin/perl
+
+use 5.012;
+use strictures::disable;
+
+use lib "/home/mauzo/src/LDAP/morrow.me.uk/lib";
+
+use BMORROW::LDAP::Dist;
+
+my $app = BMORROW::LDAP::Dist->new(conf => "config");
+$app->init;
+$app->run;
+
+1;
