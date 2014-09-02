@@ -25,6 +25,8 @@ use POSIX;
 use Try::Tiny;
 use YAML::XS;
 
+our $VERSION = "1";
+
 with "MooX::Role::WeakClosure";
 
 has _conf   => is => "ro";

@@ -44,7 +44,8 @@
    },
    "provides" : {
       "BMORROW::LDAP::Dist" : {
-         "file" : "lib/BMORROW/LDAP/Dist.pm"
+         "file" : "lib/BMORROW/LDAP/Dist.pm",
+         "version" : "1"
       },
       "BMORROW::LDAP::Dist::DNS" : {
          "file" : "lib/BMORROW/LDAP/Dist/DNS.pm"
@@ -65,5 +66,5 @@
          "url" : "http://github.com/mauzo/BMORROW-LDAP-Dist"
       }
    },
-   "version" : "0"
+   "version" : "1"
 }
