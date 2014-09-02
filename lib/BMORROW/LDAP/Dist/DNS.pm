@@ -9,7 +9,7 @@ use Net::IP;
 
 extends "BMORROW::LDAP::Dist::Plugin";
 
-has zones       => is => "lazy", clearer => 1;
+has zones => is => "lazy", clearer => 1;
 
 sub _build_zones {
     my ($self) = @_;
@@ -25,14 +25,14 @@ sub _build_zones {
 sub searches {
     my ($self) = @_;
     "hosts" => {
-        base        => $self->conf("base"),
+        base        => join(",", $self->conf("hosts", "base")),
         filter      => "objectClass=ipHost",
         callback    => "hosts_changed",
-        wait        => 10,
-        maxwait     => 30,
+        wait        => $self->conf("wait")->{min},
+        maxwait     => $self->conf("wait")->{max},
     },
     "zones" => {
-        base        => "ou=zones," . $self->conf("base"),
+        base        => join(",", $self->conf("zones", "base")),
         filter      => q((nSRecord=*)),
         attrs       => [qw[ zoneName nSRecord ]],
         callback    => "zones_changed",
@@ -78,7 +78,7 @@ sub hosts_changed {
         }
     }
 
-    my $Zones   = $self->conf("zones");
+    my $Zones   = $self->conf("output");
     my $TTL     = $self->conf("TTL");
     my $Contact = $self->conf("contact");
     my $zones   = $self->zones;
@@ -101,7 +101,7 @@ sub hosts_changed {
             say "$zn. $$TTL{NS} IN NS $_.";
         }
 
-        for my $r (@{$recs{$zn}}) {
+        for my $r (sort { $$a[0] cmp $$b[0] } @{$recs{$zn}}) {
             my ($nm, $typ, $dat) = @$r;
             my $ttl = $$TTL{$typ} // $$TTL{default};
             say "$nm $ttl IN $typ $dat";
@@ -113,7 +113,7 @@ sub hosts_changed {
 
     say "  Writing [$Zones.nsd.conf]...";
     open my $CNF, ">", "$Zones.nsd.conf";
-    print $CNF <<CNF for keys %$zones;
+    print $CNF <<CNF for sort keys %$zones;
 zone:
     name: "$_"
     zonefile: "$Zones/$_"
@@ -123,7 +123,7 @@ CNF
 
     say "  Writing [$Zones.unbound.conf]...";
     open $CNF, ">", "$Zones.unbound.conf";
-    for (keys %$zones) {
+    for (sort keys %$zones) {
         # XXX lookup and generate the addrs
         # We can't use stub-host since the NS records are in-bailiwick
         print $CNF <<CNF;

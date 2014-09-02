@@ -13,8 +13,12 @@ sub _build__conf {
 }
 
 sub conf {
-    my ($self, $key) = @_;
-    $self->_conf->{$key} // $self->Dist->conf($key);
+    my ($self, @keys) = @_;
+    my $cnf     = $self->_conf;
+    my $dist    = $self->Dist;
+    wantarray 
+        ? map $$cnf{$_} // $dist->conf($_), @keys
+        : $$cnf{$keys[0]} // $dist->conf($keys[0]);
 }
 
 sub init { }
