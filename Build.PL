@@ -9,6 +9,21 @@ Module::Build->new(
     build_requires	=> {
 	"Test::More"	    => "0.96",
     },
+    requires            => {
+        "BMORROW::LDAP"             => "0",
+        "Data::Dump"                => "0",
+        "File::Slurp"               => "0",
+        "IO::KQueue"                => "0",
+        "JSON::XS"                  => "0",
+        "Module::Runtime"           => "0",
+        "Moo"                       => "0",
+        "MooX::Role::WeakClosure"   => "0",
+        "Net::IP"                   => "0",
+        "Net::LDAPx::Sync"          => "0",
+        "Try::Tiny"                 => "0",
+        "YAML::XS"                  => "0",
+        "strictures::disable"       => "0",
+    },
     meta_merge		=> {
 	resources   => {
 	    repository => "http://github.com/mauzo/BMORROW-LDAP-Dist",

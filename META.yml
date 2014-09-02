@@ -1,0 +1,41 @@
+---
+abstract: 'Use syncrepl to distribute LDAP changes'
+author:
+  - 'Ben Morrow <ben@morrow.me.uk>'
+build_requires:
+  Test::More: '0.96'
+configure_requires:
+  Module::Build: '0.38'
+dynamic_config: 1
+generated_by: 'Module::Build version 0.4205, CPAN::Meta::Converter version 2.141520'
+license: bsd
+meta-spec:
+  url: http://module-build.sourceforge.net/META-spec-v1.4.html
+  version: '1.4'
+name: BMORROW-LDAP-Dist
+provides:
+  BMORROW::LDAP::Dist:
+    file: lib/BMORROW/LDAP/Dist.pm
+  BMORROW::LDAP::Dist::DNS:
+    file: lib/BMORROW/LDAP/Dist/DNS.pm
+  BMORROW::LDAP::Dist::Plugin:
+    file: lib/BMORROW/LDAP/Dist/Plugin.pm
+requires:
+  BMORROW::LDAP: '0'
+  Data::Dump: '0'
+  File::Slurp: '0'
+  IO::KQueue: '0'
+  JSON::XS: '0'
+  Module::Runtime: '0'
+  Moo: '0'
+  MooX::Role::WeakClosure: '0'
+  Net::IP: '0'
+  Net::LDAPx::Sync: '0'
+  Try::Tiny: '0'
+  YAML::XS: '0'
+  strictures::disable: '0'
+resources:
+  bugtracker: https://rt.cpan.org/Public/Dist/Display.html?Name=BMORROW-LDAP-Dist
+  license: http://opensource.org/licenses/bsd-license.php
+  repository: http://github.com/mauzo/BMORROW-LDAP-Dist
+version: '0'

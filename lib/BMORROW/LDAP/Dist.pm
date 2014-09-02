@@ -1,5 +1,11 @@
 package BMORROW::LDAP::Dist;
 
+=head1 NAME
+
+BMORROW::LDAP::Dist - Use syncrepl to distribute LDAP changes
+
+=cut
+
 use 5.012;
 use Moo;
 
@@ -233,3 +239,14 @@ sub run {
 }
 
 1;
+
+=head1 AUTHOR
+
+Ben Morrow <ben@morrow.me.uk>
+
+=head1 COPYRIGHT
+
+Copyright 2014 Ben Morrow.
+
+Distributed under the 2-clause BSD licence.
+
