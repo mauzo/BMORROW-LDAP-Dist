@@ -189,7 +189,6 @@ sub init {
     my ($self) = @_;
 
     my $L = $self->LDAP;
-    my $S = $self->searches;
 
     $L->bind;
     $L->async(1);
@@ -203,11 +202,12 @@ sub init {
             $L->process;
         },
     );
-    $self->register_kevent(POSIX::SIGINT, EVFILT_SIGNAL, sub {
-        info "SIGINT!";
-        $_->stop_sync for values %$S;
-    });
+    $self->register_kevent(POSIX::SIGINT, EVFILT_SIGNAL,
+        $self->weak_method("stop"));
     $SIG{INT} = "IGNORE";
+    $self->register_kevent(POSIX::SIGTERM, EVFILT_SIGNAL,
+        $self->weak_method("stop"));
+    $SIG{TERM} = "IGNORE";
     $self->register_kevent(SIGINFO, EVFILT_SIGNAL,
         $self->weak_method("_show_caches"));
     $self->register_kevent(POSIX::SIGQUIT, EVFILT_SIGNAL, sub {
@@ -243,6 +243,14 @@ sub run {
         JSON::XS->new->pretty->ascii->encode($frz);
 
     say "Done.";
+}
+
+sub stop {
+    my ($self) = @_;
+
+    my $S = $self->searches;
+    say "Stopping searches...";
+    $_->stop_sync for values %$S;
 }
 
 1;
