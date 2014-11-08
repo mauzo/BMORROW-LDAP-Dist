@@ -10,6 +10,7 @@ use Net::CIDR::Set;
 use Net::IP;
 
 extends "BMORROW::LDAP::Dist::Plugin";
+with    qw/ BMORROW::LDAP::Dist::HasExec /;
 
 has networks    => is => "lazy", clearer => 1;
 has zones       => is => "lazy", clearer => 1;
@@ -54,6 +55,8 @@ sub _build_networks {
     my @nets    = map $_->mzNetwork, $self->results("server");
     my $v4      = Net::CIDR::Set->new({type => "ipv4"});
     my $v6      = Net::CIDR::Set->new({type => "ipv6"});
+
+    say "NETWORKS: " . Data::Dump::pp \%nets;
 
     for (map @{$nets{$_} // []}, @nets) {
         say "NETWORK [$_]";
@@ -153,6 +156,13 @@ sub hosts_changed {
             $push_rec->($ip->reverse_ip, "ptr", "$canon.");
         }
     }
+    
+    $self->write_files(\%recs);
+    $self->do_exec;
+}
+
+sub write_files {
+    my ($self, $recs) = @_;
 
     my $Zones   = $self->conf("output");
     my $TTL     = $self->conf("TTL");
@@ -180,7 +190,7 @@ sub hosts_changed {
 
         for my $r (
             sort { $$a[0] cmp $$b[0] } 
-            @{$recs{$zn}}, @{$$zones{$zn}{rr} // []}
+            @{$$recs{$zn}}, @{$$zones{$zn}{rr} // []}
         ) {
             my ($nm, $typ, $dat) = @$r;
             my $ttl = $$TTL{$typ} // $$TTL{default};
