@@ -194,7 +194,6 @@ sub init {
     $L->async(1);
 
     $self->plugins;
-    $self->_show_caches;
 
     $self->register_kevent(fileno $L->socket(sasl_layer => 0),
         EVFILT_READ, sub {
@@ -234,8 +233,6 @@ sub run {
             $$_[KQ_UDATA]->();
         }
     }
-
-    $self->_show_caches;
 
     say "Recording sync state...";
     my $frz = { map +($_ => $$S{$_}->freeze), keys %$S };
