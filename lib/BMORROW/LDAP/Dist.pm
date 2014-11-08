@@ -25,7 +25,7 @@ use POSIX;
 use Try::Tiny;
 use YAML::XS;
 
-our $VERSION = "1";
+our $VERSION = "2";
 
 with "MooX::Role::WeakClosure";
 
