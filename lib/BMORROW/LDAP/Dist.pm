@@ -39,7 +39,12 @@ has LDAP    => is => "lazy";
 
 sub _build_LDAP {
     my ($self) = @_;
-    Net::LDAP->new($self->conf("host"));
+    my $L = Net::LDAP->new($self->conf("host"));
+    my $tls = $self->conf("tls");
+    $tls and $L->start_tls(ref $tls ? %$tls : ());
+    my $bind = $self->conf("bind");
+    $bind and $L->bind(ref $bind ? @$bind : ());
+    $L;
 }
 
 has sync_state  => is => "lazy";
