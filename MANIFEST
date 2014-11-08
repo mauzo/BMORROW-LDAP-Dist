@@ -3,6 +3,7 @@ Build.PL
 Changes
 lib/BMORROW/LDAP/Dist.pm
 lib/BMORROW/LDAP/Dist/DNS.pm
+lib/BMORROW/LDAP/Dist/HasExec.pm
 lib/BMORROW/LDAP/Dist/Plugin.pm
 MANIFEST			This list of files
 META.json

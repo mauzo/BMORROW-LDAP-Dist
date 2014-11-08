@@ -16,9 +16,11 @@ name: BMORROW-LDAP-Dist
 provides:
   BMORROW::LDAP::Dist:
     file: lib/BMORROW/LDAP/Dist.pm
-    version: '2'
+    version: '3'
   BMORROW::LDAP::Dist::DNS:
     file: lib/BMORROW/LDAP/Dist/DNS.pm
+  BMORROW::LDAP::Dist::HasExec:
+    file: lib/BMORROW/LDAP/Dist/HasExec.pm
   BMORROW::LDAP::Dist::Plugin:
     file: lib/BMORROW/LDAP/Dist/Plugin.pm
 requires:
@@ -41,4 +43,4 @@ resources:
   bugtracker: https://rt.cpan.org/Public/Dist/Display.html?Name=BMORROW-LDAP-Dist
   license: http://opensource.org/licenses/bsd-license.php
   repository: http://github.com/mauzo/BMORROW-LDAP-Dist
-version: '2'
+version: '3'
