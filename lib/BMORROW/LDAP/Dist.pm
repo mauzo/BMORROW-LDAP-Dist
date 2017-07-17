@@ -40,6 +40,7 @@ has LDAP    => is => "lazy";
 sub _build_LDAP {
     my ($self) = @_;
     my $L = Net::LDAP->new($self->conf("host"));
+    $self->conf("debug") and $L->debug(12);
     my $tls = $self->conf("tls");
     $tls and $L->start_tls(ref $tls ? %$tls : ());
     my $bind = $self->conf("bind");
