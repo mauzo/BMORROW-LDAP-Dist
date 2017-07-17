@@ -4,7 +4,7 @@
       "Ben Morrow <ben@morrow.me.uk>"
    ],
    "dynamic_config" : 1,
-   "generated_by" : "Module::Build version 0.421",
+   "generated_by" : "Module::Build version 0.4214",
    "license" : [
       "bsd"
    ],
@@ -47,7 +47,7 @@
    "provides" : {
       "BMORROW::LDAP::Dist" : {
          "file" : "lib/BMORROW/LDAP/Dist.pm",
-         "version" : "3"
+         "version" : "4"
       },
       "BMORROW::LDAP::Dist::DNS" : {
          "file" : "lib/BMORROW/LDAP/Dist/DNS.pm"
@@ -71,5 +71,5 @@
          "url" : "http://github.com/mauzo/BMORROW-LDAP-Dist"
       }
    },
-   "version" : "3"
+   "version" : "4"
 }

@@ -7,7 +7,7 @@ build_requires:
 configure_requires:
   Module::Build: '0.38'
 dynamic_config: 1
-generated_by: 'Module::Build version 0.421, CPAN::Meta::Converter version 2.142690'
+generated_by: 'Module::Build version 0.4214, CPAN::Meta::Converter version 2.150001'
 license: bsd
 meta-spec:
   url: http://module-build.sourceforge.net/META-spec-v1.4.html
@@ -16,7 +16,7 @@ name: BMORROW-LDAP-Dist
 provides:
   BMORROW::LDAP::Dist:
     file: lib/BMORROW/LDAP/Dist.pm
-    version: '3'
+    version: '4'
   BMORROW::LDAP::Dist::DNS:
     file: lib/BMORROW/LDAP/Dist/DNS.pm
   BMORROW::LDAP::Dist::HasExec:
@@ -43,4 +43,4 @@ resources:
   bugtracker: https://rt.cpan.org/Public/Dist/Display.html?Name=BMORROW-LDAP-Dist
   license: http://opensource.org/licenses/bsd-license.php
   repository: http://github.com/mauzo/BMORROW-LDAP-Dist
-version: '3'
+version: '4'
